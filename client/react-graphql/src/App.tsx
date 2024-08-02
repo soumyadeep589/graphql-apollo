@@ -2,18 +2,7 @@ import { useState } from "react";
 import reactLogo from "./assets/react.svg";
 import viteLogo from "/vite.svg";
 import "./App.css";
-import { useQuery, gql, useMutation } from "@apollo/client";
-
-// const GET_LOCATIONS = gql`
-//   query GetLocations {
-//     locations {
-//       id
-//       name
-//       description
-//       photo
-//     }
-//   }
-// `;
+import { useQuery, gql, useMutation, useSubscription } from "@apollo/client";
 
 const GET_TODOS = gql`
   query GetTodos {
@@ -33,23 +22,35 @@ const ADD_TODO = gql`
   }
 `;
 
-// function DisplayLocations() {
-//   const { loading, error, data } = useQuery(GET_LOCATIONS);
+const MESSAGE_ADDED_SUBSCRIPTION = gql`
+  subscription messageAdded {
+    messageAdded {
+      id
+      content
+      author
+    }
+  }
+`;
 
-//   if (loading) return <p>Loading...</p>;
-//   if (error) return <p>Error : {error.message}</p>;
+function Messages() {
+  const { data, loading, error } = useSubscription(MESSAGE_ADDED_SUBSCRIPTION);
 
-//   return data.locations.map(({ id, name, description, photo }) => (
-//     <div key={id}>
-//       <h3>{name}</h3>
-//       <img width="400" height="250" alt="location-reference" src={`${photo}`} />
-//       <br />
-//       <b>About this location:</b>
-//       <p>{description}</p>
-//       <br />
-//     </div>
-//   ));
-// }
+  if (loading) return <p>Loading...</p>;
+  if (error) return <p>Error: {error.message}</p>;
+
+  return (
+    <div>
+      <h3>New Message</h3>
+      {data && (
+        <div>
+          <p>ID: {data.messageAdded.id}</p>
+          <p>Content: {data.messageAdded.content}</p>
+          <p>Author: {data.messageAdded.author}</p>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function DisplayTodo() {
   const { loading, error, data } = useQuery(GET_TODOS);
@@ -98,8 +99,7 @@ function App() {
 
   return (
     <>
-      <DisplayTodo />
-      <AddTodo />
+      <Messages />
       <div>
         <a href="https://vitejs.dev" target="_blank">
           <img src={viteLogo} className="logo" alt="Vite logo" />

@@ -1,9 +1,18 @@
 const express = require("express");
 const { ApolloServer } = require("@apollo/server");
 const { expressMiddleware } = require("@apollo/server/express4");
+const { PubSub } = require("graphql-subscriptions");
+const { createServer } = require('http');
+const { makeExecutableSchema } = require('@graphql-tools/schema');
+const { WebSocketServer } = require('ws');
+const { useServer } = require('graphql-ws/lib/use/ws');
+const { ApolloServerPluginDrainHttpServer } = require('@apollo/server/plugin/drainHttpServer');
+
 const bodyParser = require("body-parser");
 const cors = require("cors");
 const { default: axios } = require("axios");
+
+const pubsub = new PubSub();
 
 // Sample data
 let todos = [
@@ -13,6 +22,8 @@ let todos = [
 
 async function startServer() {
   const app = express();
+  const httpServer = createServer(app);
+  
   const typeDefs = `
     type User {
         id: ID!
@@ -25,17 +36,27 @@ async function startServer() {
         title: String!
         completed: Boolean
     }
+    type Message {
+        id: ID!
+        content: String!
+        author: String!
+    }
 
     type Query {
         getTodos: [Todo]
         getUsers: [User]
         getUser(id: ID!): User
+        messages: [Message]
     
     }
     
     type Mutation {
       addTodo(title: String!): Todo!
+      addMessage(content: String!, author: String!): Message
     
+    }
+    type Subscription {
+        messageAdded: Message
     }
   `;
   const resolvers = {
@@ -61,17 +82,58 @@ async function startServer() {
         todos.push(newTodo);
         return newTodo;
       },
+      addMessage: (root, args) => {
+        const message = {
+          id: Date.now(),
+          content: args.content,
+          author: args.author,
+        };
+        // Save the message to your data source
+
+        // Publish the event
+        pubsub.publish("MESSAGE_ADDED", { messageAdded: message });
+
+        return message;
+      },
+    },
+    Subscription: {
+      messageAdded: {
+        subscribe: () => pubsub.asyncIterator(["MESSAGE_ADDED"]),
+      },
     },
   };
-  const server = new ApolloServer({ typeDefs, resolvers });
 
-  app.use(bodyParser.json());
-  app.use(cors());
+  const schema = makeExecutableSchema({ typeDefs, resolvers });
+
+  const wsServer = new WebSocketServer({
+    server: httpServer,
+    path: '/subscriptions',
+  });
+  const serverCleanup = useServer({ schema }, wsServer);
+
+  const server = new ApolloServer({
+    schema,
+    plugins: [
+      // Proper shutdown for the HTTP server.
+      ApolloServerPluginDrainHttpServer({ httpServer }),
+  
+      // Proper shutdown for the WebSocket server.
+      {
+        async serverWillStart() {
+          return {
+            async drainServer() {
+              await serverCleanup.dispose();
+            },
+          };
+        },
+      },
+    ],
+  });
 
   await server.start();
-  app.use("/graphql", expressMiddleware(server));
+  app.use("/graphql", cors(),bodyParser.json(), expressMiddleware(server));
 
-  app.listen(8000, () => console.log("server started at port 8000"));
+  httpServer.listen(8000, () => console.log("server started at port 8000"));
 }
 
 startServer();
